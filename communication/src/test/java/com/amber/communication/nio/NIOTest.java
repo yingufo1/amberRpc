@@ -1,11 +1,6 @@
 package com.amber.communication.nio;
 
-import org.hamcrest.CoreMatchers;
-import org.hamcrest.Matcher;
-import org.junit.Assert;
 import org.junit.Test;
-
-import static org.hamcrest.CoreMatchers.*;
 
 /**
  * @author yangying
@@ -16,12 +11,12 @@ public class NIOTest {
     @Test
     public void test(){
         int port = 9999;
-        Server server = new Server(port);
-        server.startUp();
+        NioServer nioServer = new NioServer(port);
+        nioServer.startUp();
 
-        Client client = new Client("127.0.0.1",port);
-        client.startUp();
-        client.send("hello");
+        NioClient nioClient = new NioClient("127.0.0.1",port);
+        nioClient.startUp();
+        nioClient.send("hello");
         try {
             Thread.sleep(20000);
         } catch (InterruptedException e) {

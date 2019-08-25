@@ -1,6 +1,7 @@
 package com.amber.communication.nio;
 
-import java.util.Date;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import java.util.Iterator;
 
 import lombok.extern.slf4j.Slf4j;
@@ -23,20 +24,25 @@ import java.util.concurrent.*;
 /**
  *
  */
-public class Server {
+public class NioServer {
     private ServerSocketChannel serverSocketChannel;
     private Integer port;
     private ThreadPoolExecutor threadPoolExecutor;
     private final int defaultThreadPoolCoreSize = 10;
     private final int defaultMaxThreadPoolCoreSize = 10;
     private final BlockingQueue blockingQueue = new LinkedBlockingQueue(1000);
+    private AtomicBoolean isStopped = new AtomicBoolean();
 
     public static void main(String[] args) {
-        Server server = new Server(9999);
-        server.startUp();
+        NioServer nioServer = new NioServer(9999);
+        nioServer.startUp();
     }
 
-    public Server(Integer port) {
+    public void stop() {
+        this.isStopped.compareAndSet(false, true);
+    }
+
+    public NioServer(Integer port) {
         if (port < 1024 && port > 0) {
             throw new RuntimeException("error server argument");
         }
@@ -44,7 +50,7 @@ public class Server {
         this.threadPoolExecutor = new ThreadPoolExecutor(defaultThreadPoolCoreSize, defaultMaxThreadPoolCoreSize, 100, TimeUnit.MILLISECONDS, blockingQueue);
     }
 
-    public Server(Integer port, int threadPoolCoreSize, int maxThreadPoolCoreSize) {
+    public NioServer(Integer port, int threadPoolCoreSize, int maxThreadPoolCoreSize) {
         if (port > 1024 || port < 0) {
             throw new RuntimeException("error server argument");
         }
@@ -61,7 +67,9 @@ public class Server {
     }
 
     /**
-     *
+     * 服务线程
+     * 还存在两个问题：1）客户端连接失败后，服务端不能恢复到accpect
+     * 2)没有实现给客户端写回返回操作
      */
     private class ServerRunner implements Runnable {
         private ServerSocketChannel serverSocketChannel;
@@ -72,13 +80,13 @@ public class Server {
                 serverSocketChannel = ServerSocketChannel.open();
                 selector = Selector.open();
                 serverSocketChannel.configureBlocking(false);
-                serverSocketChannel.socket().bind(new InetSocketAddress(Server.this.port));
+                serverSocketChannel.socket().bind(new InetSocketAddress(NioServer.this.port));
                 System.out.println("server start mulitexp select");
                 SelectionKey acceptKey = serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
             } catch (IOException e) {
                 e.printStackTrace();
             }
-            while (true) {
+            while (!NioServer.this.isStopped.get()) {
                 SelectionKey selectionKey = null;
                 try {
                     selector.select(1000);
@@ -95,11 +103,17 @@ public class Server {
                         selectionKey.cancel();
                 }
             }
-
+            if (selector != null) {
+                try {
+                    selector.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
         }
     }
 
-    private void handleEvent(SelectionKey selectionKey){
+    private void handleEvent(SelectionKey selectionKey) {
         try {
             if (!selectionKey.isValid()) {
                 return;
@@ -111,7 +125,7 @@ public class Server {
                 handleRead(selectionKey);
             }
             if (selectionKey.isWritable()) {
-                handWrite(selectionKey,"111");
+                handWrite(selectionKey, "111");
             }
             if (selectionKey.isConnectable()) {
                 log.info("connected ");
@@ -147,90 +161,20 @@ public class Server {
             readBuffer.flip();
             byte[] bytes = readBuffer.array();
             System.out.println(Thread.currentThread().getName() + ":read msg:" + new String(bytes));
+        }else{
+            selectionKey.cancel();
+            socketChannel.close();
         }
         ByteBuffer writeBuffer = ByteBuffer.allocate(1024);
         writeBuffer.put(" world".getBytes());
         socketChannel.write(writeBuffer);
     }
 
-    private void handWrite(SelectionKey selectionKey,String message) throws IOException {
+    private void handWrite(SelectionKey selectionKey, String message) throws IOException {
         SocketChannel socketChannel = (SocketChannel) selectionKey.channel();
         byte[] messageBytes = message.getBytes();
         ByteBuffer writeBuffer = ByteBuffer.allocate(messageBytes.length);
         writeBuffer.put(messageBytes);
         socketChannel.write(writeBuffer);
-    }
-
-    /**
-     * 多线程处理SelectKey存在问题，即selectKey如何共享
-     */
-    private class SocketEventHandler implements Runnable {
-        private SelectionKey selectionKey;
-
-        public SocketEventHandler(SelectionKey selectionKey) {
-            this.selectionKey = selectionKey;
-        }
-
-        public void run() {
-            try {
-                if (!selectionKey.isValid()) {
-                    return;
-                }
-                if (selectionKey.isAcceptable()) {
-                    handleAccepted();
-                }
-                if (selectionKey.isReadable()) {
-                    handleRead();
-                }
-                if (selectionKey.isWritable()) {
-                    handWrite("111");
-                }
-                if (selectionKey.isConnectable()) {
-                    log.info("connected ");
-                }
-            } catch (IOException e) {
-                log.error("error:", e);
-            } finally {
-                if (selectionKey != null)
-                    selectionKey.cancel();
-                if (selectionKey.channel() != null) {
-                    try {
-                        selectionKey.channel().close();
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                }
-            }
-        }
-
-        private void handleAccepted() throws IOException {
-            ServerSocketChannel serverSocketChannel = (ServerSocketChannel) selectionKey.channel();
-            System.out.println(Thread.currentThread().getName() + ":server start listen connect:" + serverSocketChannel.socket().getLocalPort());
-            SocketChannel socketChannel = serverSocketChannel.accept();
-            socketChannel.configureBlocking(false);
-            socketChannel.register(selectionKey.selector(), SelectionKey.OP_READ);
-        }
-
-        private void handleRead() throws IOException {
-            SocketChannel socketChannel = (SocketChannel) selectionKey.channel();
-            ByteBuffer readBuffer = ByteBuffer.allocate(1024);
-            int readBytes = socketChannel.read(readBuffer);
-            if (readBytes > 0) {
-                readBuffer.flip();
-                byte[] bytes = readBuffer.array();
-                System.out.println(Thread.currentThread().getName() + ":read msg:" + new String(bytes));
-            }
-            ByteBuffer writeBuffer = ByteBuffer.allocate(1024);
-            writeBuffer.put(" world".getBytes());
-            socketChannel.write(writeBuffer);
-        }
-
-        private void handWrite(String message) throws IOException {
-            SocketChannel socketChannel = (SocketChannel) selectionKey.channel();
-            byte[] messageBytes = message.getBytes();
-            ByteBuffer writeBuffer = ByteBuffer.allocate(messageBytes.length);
-            writeBuffer.put(messageBytes);
-            socketChannel.write(writeBuffer);
-        }
     }
 }

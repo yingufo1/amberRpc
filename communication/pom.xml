@@ -12,7 +12,7 @@
         <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-all</artifactId>
-            <version>4.0.36.Final</version>
+            <version>4.1.38.Final</version>
         </dependency>
         <dependency>
             <groupId>junit</groupId>
@@ -42,7 +42,7 @@
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-access</artifactId>
-            <version>1.1.11</version>
+            <version>1.1.2</version>
         </dependency>
         <dependency>
             <groupId>ch.qos.logback</groupId>

@@ -9,8 +9,5 @@
         <module name="communication" />
       </profile>
     </annotationProcessing>
-    <bytecodeTargetLevel>
-      <module name="communication" target="1.5" />
-    </bytecodeTargetLevel>
   </component>
 </project>
